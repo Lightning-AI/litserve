@@ -221,12 +221,13 @@ def run_streaming_loop(lit_api: LitAPI, lit_spec: LitSpec, request_queue: Queue,
                 lit_api.encode_response,
                 y_gen,
             )
-            for y_enc in y_enc_gen:
-                with contextlib.suppress(BrokenPipeError):
+            try:
+                for y_enc in y_enc_gen:
                     y_enc = lit_api.format_encoded_response(y_enc)
                     pipe_s.send((y_enc, LitAPIStatus.OK))
-            with contextlib.suppress(BrokenPipeError):
                 pipe_s.send(("", LitAPIStatus.FINISH_STREAMING))
+            except BrokenPipeError as e:
+                logger.error(f"Detected BrokenPipeError {e}, this could mean client has been disconnected.")
         except Exception as e:
             logger.exception(
                 "LitAPI ran into an error while processing the streaming request uid=%s.\n"
@@ -277,16 +278,17 @@ def run_batched_streaming_loop(
             unbatched_iter = lit_api.unbatch(y_iter)
             y_enc_iter = _inject_context(contexts, lit_api.encode_response, unbatched_iter)
 
-            # y_enc_iter -> [[response-1, response-2], [response-1, response-2]]
-            for y_batch in y_enc_iter:
-                for y_enc, pipe_s in zip(y_batch, pipes):
-                    with contextlib.suppress(BrokenPipeError):
+            try:
+                # y_enc_iter -> [[response-1, response-2], [response-1, response-2]]
+                for y_batch in y_enc_iter:
+                    for y_enc, pipe_s in zip(y_batch, pipes):
                         y_enc = lit_api.format_encoded_response(y_enc)
                         pipe_s.send((y_enc, LitAPIStatus.OK))
 
-            with contextlib.suppress(BrokenPipeError):
                 for pipe_s in pipes:
                     pipe_s.send(("", LitAPIStatus.FINISH_STREAMING))
+            except BrokenPipeError as e:
+                logger.error(f"Detected BrokenPipeError {e}, this could mean client has been disconnected.")
         except Exception as e:
             logger.exception(
                 "LitAPI ran into an error while processing the streaming batched request.\n"
